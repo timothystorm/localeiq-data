@@ -1,0 +1,16 @@
+name: Mirror upstream CLDR
+on:
+  schedule:
+    - cron: '0 0 1 * *'   # monthly, first day at 00:00 UTC
+    workflow_dispatch: {} # allow manual runs
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone upstream as bare mirror
+        run: |
+          git clone --mirror https://github.com/unicode-org/cldr.git source.git
+          cd source.git
+          git remote set-url --push origin https://github.com/${{ github.repository }}.git
+          git push --mirror
+
