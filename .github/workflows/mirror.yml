@@ -1,16 +1,54 @@
-name: Mirror upstream CLDR
+name: Mirror upstream CLDR (default branch -> cldr-upstream)
+
 on:
   schedule:
-    - cron: '0 0 1 * *'   # monthly, first day at 00:00 UTC
-  workflow_dispatch: {} # allow manual runs
+    - cron: '0 0 1 * *'     # monthly, 1st at 00:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
 jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
-      - name: Clone upstream as bare mirror
-        run: |
-          git clone --mirror https://github.com/unicode-org/cldr.git source.git
-          cd source.git
-          git remote set-url --push origin https://github.com/timothystorm/cldr-mirror.git 
-          git push --mirror
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
+      - name: Determine upstream default branch
+        id: upstream
+        run: |
+          UPSTREAM=https://github.com/unicode-org/cldr.git
+          # Ask upstream what HEAD points to (their default branch)
+          DEF_REF=$(git ls-remote --symref "$UPSTREAM" HEAD | awk '/^ref:/ {print $2}')
+          DEF_BRANCH="${DEF_REF#refs/heads/}"
+          echo "default=$DEF_BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch upstream default branch
+        run: |
+          UPSTREAM=https://github.com/unicode-org/cldr.git
+          git fetch "$UPSTREAM" "refs/heads/${{ steps.upstream.outputs.default }}:refs/remotes/upstream/${{ steps.upstream.outputs.default }}"
+
+      - name: Update local cldr-upstream branch to match upstream
+        run: |
+          TARGET=cldr-upstream
+          SRC="refs/remotes/upstream/${{ steps.upstream.outputs.default }}"
+          # Create or reset the branch to upstream
+          if git show-ref --verify --quiet "refs/heads/$TARGET"; then
+            git branch -f "$TARGET" "$SRC"
+          else
+            git branch "$TARGET" "$SRC"
+          fi
+          git push origin "refs/heads/$TARGET"
+
+      - name: (Optional) Push upstream tags under a namespace (skip by default)
+        if: ${{ false }}
+        run: |
+          # Example if you ever want tags mirrored (namespaced to avoid collisions)
+          # for t in $(git ls-remote --tags https://github.com/unicode-org/cldr.git | awk '{print $2}' | sed 's#refs/tags/##'); do
+          #   git fetch https://github.com/unicode-org/cldr.git "refs/tags/$t:refs/tags/upstream/$t"
+          # done
+          # git push --tags
+          echo "Skipping tag mirror"
