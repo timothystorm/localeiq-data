@@ -11,6 +11,6 @@ jobs:
         run: |
           git clone --mirror https://github.com/unicode-org/cldr.git source.git
           cd source.git
-          git remote set-url --push origin https://github.com/${{ github.repository }}.git
+          git remote set-url --push origin https://github.com/timothystorm/cldr-mirror.git 
           git push --mirror
 
