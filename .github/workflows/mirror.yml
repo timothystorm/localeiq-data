@@ -1,8 +1,8 @@
-name: Mirror upstream CLDR (default branch -> cldr-upstream)
+name: Mirror upstream CLDR (to cldr-upstream, strip workflows)
 
 on:
   schedule:
-    - cron: '0 0 1 * *'     # monthly, 1st at 00:00 UTC
+    - cron: '0 0 1 * *'    # monthly, 1st at 00:00 UTC
   workflow_dispatch: {}
 
 permissions:
@@ -19,36 +19,45 @@ jobs:
 
       - name: Determine upstream default branch
         id: upstream
+        shell: bash
         run: |
-          UPSTREAM=https://github.com/unicode-org/cldr.git
-          # Ask upstream what HEAD points to (their default branch)
-          DEF_REF=$(git ls-remote --symref "$UPSTREAM" HEAD | awk '/^ref:/ {print $2}')
+          set -euo pipefail
+          UPSTREAM="https://github.com/unicode-org/cldr.git"
+          # Figure out upstream's default branch name reliably
+          DEF_REF="$(git ls-remote --symref "$UPSTREAM" HEAD | awk '/^ref:/ {print $2}')"
           DEF_BRANCH="${DEF_REF#refs/heads/}"
           echo "default=$DEF_BRANCH" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch upstream default branch
+      - name: Fetch upstream tip
+        shell: bash
         run: |
-          UPSTREAM=https://github.com/unicode-org/cldr.git
-          git fetch "$UPSTREAM" "refs/heads/${{ steps.upstream.outputs.default }}:refs/remotes/upstream/${{ steps.upstream.outputs.default }}"
+          set -euo pipefail
+          UPSTREAM="https://github.com/unicode-org/cldr.git"
+          BR="${{ steps.upstream.outputs.default }}"
+          git fetch "$UPSTREAM" "refs/heads/$BR:refs/remotes/upstream/$BR"
 
-      - name: Update local cldr-upstream branch to match upstream
+      - name: Create/update cldr-upstream branch & strip upstream workflows
+        shell: bash
         run: |
-          TARGET=cldr-upstream
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           SRC="refs/remotes/upstream/${{ steps.upstream.outputs.default }}"
-          # Create or reset the branch to upstream
-          if git show-ref --verify --quiet "refs/heads/$TARGET"; then
-            git branch -f "$TARGET" "$SRC"
-          else
-            git branch "$TARGET" "$SRC"
-          fi
-          git push origin "refs/heads/$TARGET"
+          TARGET="cldr-upstream"
 
-      - name: (Optional) Push upstream tags under a namespace (skip by default)
-        if: ${{ false }}
-        run: |
-          # Example if you ever want tags mirrored (namespaced to avoid collisions)
-          # for t in $(git ls-remote --tags https://github.com/unicode-org/cldr.git | awk '{print $2}' | sed 's#refs/tags/##'); do
-          #   git fetch https://github.com/unicode-org/cldr.git "refs/tags/$t:refs/tags/upstream/$t"
-          # done
-          # git push --tags
-          echo "Skipping tag mirror"
+          # Create/reset local branch to upstream tip
+          git checkout -B "$TARGET" "$SRC"
+
+          # Remove any upstream workflow files so push doesn't require workflows:write
+          if [ -d ".github/workflows" ]; then
+            git rm -r --quiet .github/workflows || true
+          fi
+
+          # Commit only if there are changes after removal
+          if ! git diff --quiet; then
+            git commit -m "Strip upstream workflows for safe mirror"
+          fi
+
+          # Force-push the sanitized branch
+          git push -f origin "$TARGET"
