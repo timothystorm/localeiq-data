@@ -1,4 +1,4 @@
-name: Mirror upstream CLDR (to cldr-upstream, strip workflows)
+name: Mirror upstream CLDR  # creates cldr-upstream branch and strip mirroted workflows
 
 on:
   schedule:
