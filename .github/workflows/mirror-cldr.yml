@@ -1,4 +1,4 @@
-name: Mirror upstream CLDR (snapshot → cldr-upstream, strip workflows)
+name: Mirror upstream CLDR # snapshot → cldr-upstream branch and strip workflows
 on:
  schedule:
    - cron: '0 0 1 * *'    # monthly, 1st at 00:00 UTC
