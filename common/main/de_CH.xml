@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE ldml SYSTEM "../../common/dtd/ldml.dtd">
+<!-- Copyright © 1991-2025 Unicode, Inc.
+For terms of use, see http://www.unicode.org/copyright.html
+SPDX-License-Identifier: Unicode-3.0
+CLDR data files are interpreted according to the LDML specification (http://unicode.org/reports/tr35/)
+-->
+<ldml>
+	<identity>
+		<version number="$Revision$"/>
+		<language type="de"/>
+		<territory type="CH"/>
+	</identity>
+	<localeDisplayNames>
+		<languages>
+			<language type="prg">Altpreussisch</language>
+		</languages>
+		<territories>
+			<territory type="QO">Äusseres Ozeanien</territory>
+		</territories>
+		<keys>
+			<key type="colCaseFirst">Sortierung nach Gross- bzw. Kleinbuchstaben</key>
+			<key type="colCaseLevel">Sortierung nach Gross- oder Kleinschreibung</key>
+			<key type="ms">Masssystem</key>
+		</keys>
+		<types>
+			<type key="colCaseFirst" type="upper" draft="contributed">Grossbuchstaben zuerst aufführen</type>
+			<type key="colCaseLevel" type="no" draft="contributed">Ohne Gross-/Kleinschreibung sortieren</type>
+			<type key="colCaseLevel" type="yes" draft="contributed">Nach Gross-/Kleinschreibung sortieren</type>
+			<type key="ms" type="uksystem">Britisches Masssystem</type>
+			<type key="ms" type="ussystem">US-Masssystem</type>
+		</types>
+	</localeDisplayNames>
+	<characters>
+		<exemplarCharacters>[aä b c d e f g h i j k l m n oö p q r s t uü v w x y z]</exemplarCharacters>
+		<exemplarCharacters type="auxiliary">↑↑↑</exemplarCharacters>
+		<exemplarCharacters type="index">↑↑↑</exemplarCharacters>
+		<exemplarCharacters type="numbers">[\- ‑ . ’ % ‰ + 0 1 2 3 4 5 6 7 8 9]</exemplarCharacters>
+		<exemplarCharacters type="numbers-auxiliary" draft="contributed">↑↑↑</exemplarCharacters>
+		<exemplarCharacters type="punctuation">↑↑↑</exemplarCharacters>
+		<exemplarCharacters type="punctuation-auxiliary" draft="contributed">↑↑↑</exemplarCharacters>
+	</characters>
+	<numbers>
+		<currencies>
+			<currency type="BYN">
+				<displayName>Weissrussischer Rubel</displayName>
+				<displayName count="one">Weissrussischer Rubel</displayName>
+				<displayName count="other">Weissrussische Rubel</displayName>
+			</currency>
+			<currency type="BYR">
+				<displayName>Weissrussischer Rubel (2000–2016)</displayName>
+				<displayName count="one">Weissrussischer Rubel (2000–2016)</displayName>
+				<displayName count="other">Weissrussische Rubel (2000–2016)</displayName>
+			</currency>
+		</currencies>
+	</numbers>
+	<units>
+		<unitLength type="long">
+			<unit type="area-square-foot">
+				<displayName>Quadratfuss</displayName>
+				<unitPattern count="one">{0} Quadratfuss</unitPattern>
+				<unitPattern count="one" case="genitive">{0} Quadratfusses</unitPattern>
+				<unitPattern count="other">{0} Quadratfuss</unitPattern>
+			</unit>
+			<unit type="length-foot">
+				<unitPattern count="one">{0} Fuss</unitPattern>
+				<unitPattern count="one" case="genitive">{0} Fusses</unitPattern>
+				<unitPattern count="other">{0} Fuss</unitPattern>
+				<perUnitPattern>{0} pro Fuss</perUnitPattern>
+			</unit>
+			<unit type="volume-cubic-foot">
+				<displayName>Kubikfuss</displayName>
+				<unitPattern count="one">{0} Kubikfuss</unitPattern>
+				<unitPattern count="one" case="accusative">{0} Kubikfuss</unitPattern>
+				<unitPattern count="one" case="dative">{0} Kubikfuss</unitPattern>
+				<unitPattern count="one" case="genitive">{0} Kubikfusses</unitPattern>
+				<unitPattern count="other">{0} Kubikfuss</unitPattern>
+				<unitPattern count="other" case="accusative">{0} Kubikfuss</unitPattern>
+				<unitPattern count="other" case="dative">{0} Kubikfuss</unitPattern>
+				<unitPattern count="other" case="genitive">{0} Kubikfuss</unitPattern>
+			</unit>
+		</unitLength>
+		<unitLength type="short">
+			<unit type="length-foot">
+				<displayName>Fuss</displayName>
+			</unit>
+		</unitLength>
+	</units>
+	<typographicNames>
+		<axisName type="opsz">optische Grösse</axisName>
+		<styleName type="opsz" subtype="8">Konsultationsgrösse</styleName>
+		<styleName type="opsz" subtype="12">Lesegrösse</styleName>
+		<styleName type="opsz" subtype="18">Schaugrösse</styleName>
+		<styleName type="opsz" subtype="72">Plakatgrösse</styleName>
+		<styleName type="opsz" subtype="144">Ferngrösse</styleName>
+	</typographicNames>
+</ldml>
