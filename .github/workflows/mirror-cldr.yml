@@ -69,6 +69,3 @@ jobs:
           git commit -m "Snapshot CLDR ${{ steps.upstream.outputs.branch }} @ ${{ steps.upstream.outputs.sha }} (workflows stripped)"
 
           git push -f origin "$TARGET"
-GitHub - unicode-org/cldr: The home of the Unicode Common Locale Data Repository
-The home of the Unicode Common Locale Data Repository - unicode-org/cldr
- 
