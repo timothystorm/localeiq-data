@@ -1,4 +1,4 @@
-name: Mirror upstream CLDR # snapshot → cldr-upstream branch and strip workflows
+name: Mirror upstream CLDR # snapshot → cldr-upstream and strip cldr workflows
 on:
  schedule:
    - cron: '0 0 1 * *'    # monthly, 1st at 00:00 UTC
@@ -6,17 +6,64 @@ on:
 permissions:
  contents: write
 jobs:
-  repo-sync:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          persist-credentials: false
-
-      - name: repo-sync
-        uses: repo-sync/github-sync@v2
-        with:
-          source_repo: 'https://github.com/unicode-org/cldr.git'
-          source_branch: 'main'
-          destination_branch: 'cldr-upstream'
-          github_token: ${{ secrets.PAT }}
+ mirror:
+   runs-on: ubuntu-latest
+   steps:
+     - name: Checkout this repo
+       uses: actions/checkout@v4
+       with:
+         fetch-depth: 0
+     - name: Determine upstream default branch & SHA
+       id: upstream
+       shell: bash
+       run: |
+         set -euo pipefail
+         UPSTREAM="https://github.com/unicode-org/cldr.git"
+         DEF_REF="$(git ls-remote --symref "$UPSTREAM" HEAD | awk '/^ref:/ {print $2}')"
+         DEF_BRANCH="${DEF_REF#refs/heads/}"
+         SHA="$(git ls-remote "$UPSTREAM" "refs/heads/$DEF_BRANCH" | awk '{print $1}')"
+         echo "branch=$DEF_BRANCH" >> "$GITHUB_OUTPUT"
+         echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+     
+     - name: Fetch upstream tip (for archive)
+       shell: bash
+       run: |
+         set -euo pipefail
+         UPSTREAM="https://github.com/unicode-org/cldr.git"
+         BR="${{ steps.upstream.outputs.branch }}"
+         git fetch "$UPSTREAM" "refs/heads/$BR:refs/remotes/upstream/$BR"
+     
+     - name: Create sanitized snapshot branch (orphan) cldr-upstream
+       shell: bash
+       run: |
+         set -euo pipefail
+         git config user.name  "github-actions[bot]"
+         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+         
+         TARGET="cldr-upstream"
+         SRC="refs/remotes/upstream/${{ steps.upstream.outputs.branch }}"
+         
+         # Start a fresh orphan branch
+         git checkout --orphan "$TARGET"
+         
+         # Clean workspace/index
+         git rm -r -q --cached . || true
+         rm -rf ./* ./.??* || true
+         
+         # Extract upstream snapshot (no history)
+         git archive --format=tar "$SRC" | tar -x
+         
+         # Strip upstream workflows to avoid permissions issues
+         rm -rf .github/workflows || true
+         
+         # Stamp source info (handy for auditing)
+         mkdir -p .mirror
+         printf "upstream_branch=%s\nupstream_sha=%s\nsynced_at=%sZ\n" \
+           "${{ steps.upstream.outputs.branch }}" \
+           "${{ steps.upstream.outputs.sha }}" \
+           
+           "$(date -u +%FT%T)" > .mirror/CLDR_SOURCE.txt
+         
+         git add -A
+         git commit -m "Snapshot CLDR ${{ steps.upstream.outputs.branch }} @ ${{ steps.upstream.outputs.sha }} (workflows stripped)"
+         git push -f origin "$TARGET"
