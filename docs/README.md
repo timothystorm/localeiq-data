@@ -1,0 +1,17 @@
+# CLDR `docs` directory
+
+CLDR main page: [https://www.unicode.org/cldr](unicode.org/cldr)
+
+## TR35
+
+- [Unicode Technical Standard #35 UNICODE LOCALE DATA MARKUP LANGUAGE (LDML)](ldml/tr35.html)
+
+## RFC
+
+- draft-davis-t-langtag-ext: [html](rfc/draft-davis-t-langtag-ext.html) [txt](rfc/draft-davis-t-langtag-ext.txt)
+
+- draft-davis-u-langtag-ext-00: [html](rfc/draft-davis-u-langtag-ext-00.html) [txt](rfc/draft-davis-u-langtag-ext-00.txt)
+
+### Copyright
+
+For copyright, terms of use, and further details, see the top [README](../README.md).
