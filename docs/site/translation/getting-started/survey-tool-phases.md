@@ -1,0 +1,130 @@
+---
+title: Survey Tool phases
+---
+
+# Survey Tool phases
+
+This page explains the status entry in the top left corner of the [top of the Survey Tool page](https://st.unicode.org)
+<!-- TODO: Add image of the different status messages in ST -->
+For the latest news about the Survey Tool, see the [Information Hub for Linguists: News][] section.
+
+## Phases
+
+Data collection in the Survey tool for a regular submission cycle has 5 phases:
+
+1. [Shakedown](#shakedown)
+2. [General Submission](#general-submission)
+3. [Vetting](#vetting)
+4. [Resolution](#resolution)
+5. [Readonly](#readonly)
+
+## Regular Submission phases
+
+Locales which are directly managed by the [CLDR TC][] will follow the regular submission process in order to facilitate discussions
+in the [Forum][] and allow resolution of any disputed items.
+
+### Shakedown
+
+_Make sure your coverage level is set correctly at the top of the page._
+
+Shakedown is on an invitation basis. If you have not received an invitation to participate in shakedown, your participation is discouraged.
+
+You should know in this stage:
+
+- The survey tool is **live and all data that you enter will be saved and used.**
+- You can start work
+- Expect a churn: there may be additional Tooling fixes and Data additions during this period. 
+- Tool may be taken down for updates more frequently during general submission
+- You are expected to look for issues with the Survey tool and any other problems you encounter as a vetter. Please see instructions for [Reporting Survey Tool issues][] for how to report any issues you encounter.
+
+### General Submission
+
+_Make sure your coverage level is set correctly at the top of the page._
+
+For new locales or ones where the goal is to increase the level, it is best to proceed page-by-page starting with the **Core Data** section. At the top of each page you can see the number of items open on the page. Then scan down the page to see all the places where you need to vote (including adding items). Some 
+
+Then please focus on the [Dashboard][] view,
+
+1. Get all **Missing**† items entered
+2. Vote for all **Provisional** items (where you haven't already voted)
+3. Address any remaining **Errors\***
+4. Review the **English Changed** (where the English value changed, but your locale's value didn't. These may need adjustment.)
+    - \* Note that if the committee finds systematic errors in data, new tests can be added during the submission period, resulting in new **Errors**.
+    - † Among the _**Missing**_ are are new items for translation. (On the [Dashboard][], **New** means winning values that have changed since the last release.)
+
+If you are working in a sub-locale (such as fr\_CA), coordinate with others on the Forum to work on each section after it is are done in the main locale (fr). That way you avoid additional work and gratuitous differences. See voting for inheritance vs. hard votes in [Survey Tool Guide][]. 
+
+### Vetting
+
+All contributors are encouraged to move their focus to the [Dashboard][] view. Also see [Dashboard tip][]s to use during Vetting stage.
+
+1. Any [Flagged entries](https://st.unicode.org/cldr-apps/v#flagged///) in your locale may have questions in the Forum from TC members; please add additional information to help the TC resolve them.
+    1. To see the Flagged items, click on the **Menu** icon in the upper left corner, under the **Forum** header see **Flagged items**:
+2. Open the Dashboard, and resolve all of the [Errors][], [Provisional][] items, [Disputed][] items, and finish [Reports][]
+    1. Consider other's opinions by reviewing the **[Disputed][]** and the **[Losing][]**. See guidelines for handling Disputed and Losing in the [How to handle different Dashboard categories][] section
+3. Review all open Requests and Discussions in the [Forum][], and respond.
+
+### Resolution
+
+The vetting is done and further work is being done by the CLDR committee to resolve problems. You should periodically take a couple of minutes to check your [Forum][] to see if there are any questions about language-specific items that come up. You can reply to forum posts, but not modify items. Changes are closed to regular vetters.
+
+Org Admins may be add/modify user accounts in this phase.
+
+### Readonly
+
+In this phase, the Survey Tool is no longer actively being used for data input.
+The [CLDR TC][] is getting ready for release, and the Survey Tool will not reopen until it is time for the next version.
+You may still reply to forum posts, but not modify items.
+
+Org Admins may be add/modify user accounts in this phase.
+
+## Mixed Phases
+
+It is possible for the Survey Tool to be open for some locales and not others. In this case, you may see a mixed status such as `VETTING_CLOSED/SUBMIT` if you have not selected a locale yet. Log in and choose a specific locale to see the status for that locale.
+
+This Extended Submission phase was created to support the [non-TC locales][] that are managed by the [DDL WG][].
+The longer submission period allows smaller organizations to submit data on a more flexible timeline.
+Locales in Extended Submission often begins earlier than [Regular Submission](#regular-submission) and may stay in a SUBMIT type phase
+while TC-locales move on to the [Vetting](#vetting) and [Resolution](#resolution) phases. The Extended Submission for a major release may even be open before the previous version of CLDR has been released.
+
+The locales that are eligible for Extended Submission may change in the future.
+It may be that multiple organizations start contributing to a locale and it becomes important for them to collaborate in the [Forum][] to resolve Disputed items.
+
+## Submission types: Regular, Limited and Extended Submission
+
+There are three types of submission: Regular Submission, Limited Submisison and Extended Submission
+
+### Regular Submission
+
+* The long cycle cycle will always be a regular-submission release.
+* All languages and data areas are open for contributions. 
+
+### Limited Submission
+
+* Typically only during the shorter CLDR cycle, if there is a shorter cycle that year. Historically were odd numbers.
+* There are two types of Limited Submission
+    1. Selected fields are open for all locales; the voting options will be grayed out for the data items not in scope.
+       * Proceed with Submission (General), but start with the [Dashboard][] and focus on Errors\*, Missing†, Provisional
+    1. Selected locales are open for votes on all fields.
+       * Proceed with Submission (General).
+
+> Note: [Extended Submission][] is a type of Limited Submission.
+>    * Similar to Limited Submission, only some locales are open for submission during certain periods.
+>    * Submission often opens earlier and is often extended to encompass the vetting (and sometimes resolution) period.
+>    * Extended submission may occur as part of a Regular Submission or Limited Submission release.
+
+[CLDR TC]: /cldr-tc
+[Dashboard]: /translation/getting-started/guide#dashboard
+[Dashboard tip]: /translation/getting-started/vetting-view
+[Errors]: /translation/getting-started/vetting-view#errors
+[DDL WG]: /cldr-tc#ddl-working-group
+[Disputed]: /translation/getting-started/vetting-view#disputed
+[Forum]: /translation/getting-started/guide#forum
+[How to handle different Dashboard categories]: /translation/getting-started/guide#how-to-handle-different-categories
+[Information Hub for Linguists: News]: /translation/getting-started/guide#news
+[Losing]: /translation/getting-started/vetting-view#losing
+[non-TC locales]: /ddl#list
+[Provisional]: /getting-started/vetting-view#provisional
+[Reporting Survey Tool issues]: /translation/getting-started/guide#reporting-survey-tool-issues
+[Reports]: /translation/getting-started/vetting-view#review-reports
+[Survey Tool guide]: /translation/getting-started/guide

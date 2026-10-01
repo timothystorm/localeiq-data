@@ -1,0 +1,1485 @@
+/*
+ * cldrTable: encapsulate code related to the main Survey Tool html table,
+ * whose rows describe xpaths.
+ *
+ * Functions for populating the main table in the vetting page:
+ * 		insertRows
+ * 		updateRow
+ * 		refreshSingleRow
+ */
+
+import * as cldrAddAlt from "./cldrAddAlt.mjs";
+import * as cldrAddValue from "./cldrAddValue.mjs";
+import * as cldrAjax from "./cldrAjax.mjs";
+import * as cldrChar from "./cldrChar.mjs";
+import { VOTE_FOR_MISSING } from "./cldrConstants.mjs";
+import * as cldrCoverage from "./cldrCoverage.mjs";
+import * as cldrDashContext from "./cldrDashContext.mjs";
+import * as cldrDom from "./cldrDom.mjs";
+import * as cldrEvent from "./cldrEvent.mjs";
+import * as cldrGui from "./cldrGui.mjs";
+import * as cldrInfo from "./cldrInfo.mjs";
+import * as cldrLoad from "./cldrLoad.mjs";
+import * as cldrProgress from "./cldrProgress.mjs";
+import * as cldrStatus from "./cldrStatus.mjs";
+import * as cldrSurvey from "./cldrSurvey.mjs";
+import * as cldrText from "./cldrText.mjs";
+import * as cldrVote from "./cldrVote.mjs";
+import * as cldrXPathUtils from "./cldrXpathUtils.mjs";
+
+const HEADER_ID_PREFIX = "header_";
+const ROW_ID_PREFIX = "row_"; // formerly "r@"
+const CANDIDATE_ITEM_ID_PREFIX = "ci_";
+
+const CLDR_TABLE_DEBUG = false;
+
+/*
+ * NO_WINNING_VALUE indicates the server delivered path data without a valid winning value.
+ * It must match NO_WINNING_VALUE in the server Java code.
+ */
+const NO_WINNING_VALUE = "no-winning-value";
+
+const TRANS_HINT_ID = "en"; // expected to match SurveyMain.TRANS_HINT_ID
+const TRANS_HINT_DIRECTION = "ltr"; // English is left-to-right
+
+/**
+ * Remember the element (HTMLTableCellElement or HTMLDivElement) that was most recently
+ * shown as "selected" (displayed with a thick border). When a new element gets selected,
+ * this is used for removing the border from the old one
+ */
+let lastShown = null;
+
+/**
+ * Prepare rows to be inserted into the table
+ *
+ * @param theDiv the division (typically or always? with id='DynamicDataSection') that contains, or will contain, the table
+ * @param xpath = json.pageId; e.g., "Alphabetic_Information"
+ * @param session the session id; e.g., "DEF67BCAAFED4332EBE742C05A8D1161"
+ * @param json the json received from the server; including (among much else):
+ * 			json.locale, e.g., "aa"
+ *  		json.page.rows, with info for each row
+ */
+function insertRows(theDiv, xpath, session, json) {
+  cldrProgress.updatePageCompletion(json.canModify ? json.page.rows : null);
+  $(".warnText").remove(); // remove any pre-existing "special notes", before insertLocaleSpecialNote
+  cldrLoad.insertLocaleSpecialNote(theDiv);
+
+  let theTable = null;
+  const reuseTable =
+    theDiv?.theTable?.json && tablesAreCompatible(json, theDiv.theTable.json);
+  if (reuseTable) {
+    /*
+     * Re-use the old table, just update contents of individual cells
+     */
+    theTable = theDiv.theTable;
+  } else {
+    /*
+     * Re-create the table from scratch
+     */
+    theTable = cldrSurvey.cloneLocalizeAnon(
+      document.getElementById("proto-datatable")
+    );
+    theTable.className += " vetting-page";
+
+    /*
+     * Give our table the unique id, 'vetting-table'. This is needed by the test SurveyDriverVettingTable.
+     * Otherwise its id would be 'null' (the string 'null', not null!), and there is risk of confusion
+     * with other table such as 'proto-datarow'.
+     */
+    theTable.id = "vetting-table";
+    /*
+     * This code seems to merge parts of two prototype tables,
+     * in a complicated way. The two tables are both in hidden.html:
+     * (1) a table with no id, which contains tr id='proto-datarow', which in turn contains multiple td;
+     * (2) table id='proto-datatable', which contains multiple th.
+     * The result of the merger is theTable.toAdd, which is eventually used as
+     * a prototype for each row that gets added to the real (not hidden) table.
+     * TODO: simplify.
+     */
+    cldrSurvey.localizeFlyover(theTable); // Replace titles starting with $ with strings from cldrText
+    const headChildren = cldrSurvey.getTagChildren(
+      theTable.getElementsByTagName("tr")[0]
+    );
+    const toAdd = document.getElementById("proto-datarow"); // loaded from "hidden.html", which see.
+    const rowChildren = cldrSurvey.getTagChildren(toAdd);
+    for (let c in rowChildren) {
+      rowChildren[c].title = headChildren[c].title;
+    }
+    theTable.toAdd = toAdd;
+  }
+  cldrCoverage.updateCoverage(theDiv);
+  if (!json.canModify) {
+    /*
+     * Remove the "Abstain" column from the header since user can't modify.
+     */
+    const headAbstain = theTable.querySelector("th.d-no");
+    if (headAbstain) {
+      cldrDom.setDisplayed(headAbstain, false);
+    }
+  }
+  theDiv.theTable = theTable;
+  theTable.theDiv = theDiv;
+
+  theTable.json = json;
+  theTable.xpath = xpath;
+  theTable.session = session;
+
+  if (!reuseTable || !theDiv.contains(theTable)) {
+    theDiv.appendChild(theTable);
+  }
+  insertRowsIntoTbody(theTable, reuseTable);
+  cldrSurvey.hideLoader();
+}
+
+/**
+ * Are the new (to-be-built) table and old (already-built) table compatible, in the
+ * sense that we can re-use the old table structure, just replacing the contents of
+ * individual cells, rather than rebuilding the table from scratch?
+ *
+ * @param json1 the json for one table
+ * @param json2 the json for the other table
+ * @returns true if compatible, else false
+ */
+function tablesAreCompatible(json1, json2) {
+  if (
+    json1.page &&
+    json2.page &&
+    json1.pageId === json2.pageId &&
+    json1.locale === json2.locale &&
+    json1.canModify === json2.canModify &&
+    Object.keys(json1.page.rows).length === Object.keys(json2.page.rows).length
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Insert rows into the table
+ *
+ * @param theTable the table in which to insert the rows
+ * @param reuseTable boolean, true if theTable already has rows and we're updating them,
+ *                            false if we need to insert new rows
+ *
+ * Called by insertRows only.
+ */
+function insertRowsIntoTbody(theTable, reuseTable) {
+  const tbody = theTable.getElementsByTagName("tbody")[0];
+  const theRows = theTable.json.page.rows;
+  const toAdd = theTable.toAdd;
+  const parRow = document.getElementById("proto-parrow");
+  const theSort = theTable.json.displaySets.ph; // path header
+  const partitions = theSort.partitions;
+  const rowList = theSort.rows;
+  const partitionList = Object.keys(partitions);
+  let curPartition = null;
+  for (let i in rowList) {
+    const k = rowList[i];
+    const theRow = theRows[k];
+    /*
+     * Don't regenerate the headings if we're re-using an existing table.
+     */
+    if (!reuseTable) {
+      const newPartition = findPartition(
+        partitions,
+        partitionList,
+        curPartition,
+        i
+      );
+
+      if (newPartition != curPartition) {
+        if (newPartition.name != "") {
+          addPartitionHeader(newPartition, tbody, parRow);
+        }
+        curPartition = newPartition;
+      }
+
+      const theRowCov = parseInt(theRow.coverageValue);
+      if (!newPartition.minCoverage || newPartition.minCoverage > theRowCov) {
+        newPartition.minCoverage = theRowCov;
+        if (newPartition.tr) {
+          // only set coverage of the header if there's a header
+          newPartition.tr.className =
+            newPartition.origClass + " cov" + newPartition.minCoverage;
+        }
+      }
+    }
+
+    /*
+     * If tbody already contains tr with this id, re-use it
+     */
+    const rowId = makeRowId(theRow.xpstrid);
+    let tr = reuseTable ? document.getElementById(rowId) : null;
+    if (!tr) {
+      tr = cldrSurvey.cloneAnon(toAdd);
+      tbody.appendChild(tr);
+    }
+    tr.rowHash = k;
+    tr.theTable = theTable;
+
+    /*
+     * Update the xpath map, unless re-using the table. If we're re-using the table, then
+     * curPartition.name isn't defined, and anyway xpathMap shouldn't need changing.
+     */
+    if (!reuseTable) {
+      const xpathMap = cldrSurvey.getXpathMap();
+      xpathMap.put({
+        id: theRow.xpathId,
+        hex: theRow.xpstrid,
+        path: theRow.xpath,
+        ph: {
+          section: cldrStatus.getCurrentSection(), // Section: Timezones
+          page: cldrStatus.getCurrentPage(), // Page: SEAsia ( id, not name )
+          header: curPartition.name, // Header: Borneo
+          code: theRow.code, // Code: standard-long
+        },
+      });
+    }
+
+    /*
+     * Update the row's contents, unless it has an individual update pending.
+     * We're working with a multiple-row response from the server, and should not use
+     * this response to update any row(s) in which the user has just voted and for which
+     * we're still waiting for single-row response(s).
+     */
+    if (tr.className !== "tr_checking1" && tr.className !== "tr_checking2") {
+      updateRow(tr, theRow);
+    }
+  }
+}
+
+/**
+ * Find the specified partition.
+ *
+ * @param partitions
+ * @param partitionList
+ * @param curPartition
+ * @param i
+ * @returns the partition, or null
+ */
+function findPartition(partitions, partitionList, curPartition, i) {
+  if (curPartition && i >= curPartition.start && i < curPartition.limit) {
+    return curPartition;
+  }
+  for (let j in partitionList) {
+    const p = partitions[j];
+    if (i >= p.start && i < p.limit) {
+      return p;
+    }
+  }
+  return null;
+}
+
+/**
+ * Add a partition header, such as for a partition "Western Asia" in the
+ * page for "Locale Display Names - Territories (Asia)"
+ *
+ * @param {Element} newPartition the element that was found by findPartition
+ * @param {Element} tbody the element to which the header should be appended
+ * @param {Element} parRow the element to be cloned to make the new header
+ */
+function addPartitionHeader(newPartition, tbody, parRow) {
+  const newPar = cldrSurvey.cloneAnon(parRow);
+  const newTd = cldrSurvey.getTagChildren(newPar);
+  const newHeading = cldrSurvey.getTagChildren(newTd[0]);
+  const headerId = makeHeaderId(newPartition.name);
+  newHeading[0].id = headerId;
+  newHeading[0].innerHTML = newPartition.name;
+  newHeading[0].onclick = function () {
+    cldrStatus.setCurrentId(headerId);
+    cldrLoad.replaceHash();
+  };
+  tbody.appendChild(newPar);
+  newPar.origClass = newPar.className;
+  newPartition.tr = newPar; // heading
+}
+
+/**
+ * Reload a specific row
+ *
+ * Called only by load handler of cldrVote.handleWiredClick
+ */
+function refreshSingleRow(tr, theRow, onSuccess, onFailure) {
+  cldrSurvey.showLoader(cldrText.get("loadingOneRow"));
+
+  const xhrArgs = {
+    url: getSingleRowUrl(theRow),
+    handleAs: "json",
+    load: closureLoadHandler,
+    error: closureErrHandler,
+    timeout: cldrAjax.mediumTimeout(),
+  };
+  cldrAjax.sendXhr(xhrArgs);
+
+  function closureLoadHandler(json) {
+    singleRowLoadHandler(json, tr, theRow, onSuccess, onFailure);
+  }
+
+  function closureErrHandler(err) {
+    singleRowErrHandler(err, tr, onFailure);
+  }
+}
+
+function singleRowLoadHandler(json, tr, theRow, onSuccess, onFailure) {
+  if (CLDR_TABLE_DEBUG) {
+    console.log("singleRowLoadHandler start time = " + Date.now());
+  }
+  try {
+    if (json.page.rows[tr.rowHash]) {
+      theRow = json.page.rows[tr.rowHash];
+      tr.theTable.json.page.rows[tr.rowHash] = theRow;
+      updateRow(tr, theRow);
+      if (CLDR_TABLE_DEBUG) {
+        console.log(
+          "singleRowLoadHandler after updateRow time = " + Date.now()
+        );
+      }
+      cldrSurvey.hideLoader();
+      onSuccess(theRow);
+      if (CLDR_TABLE_DEBUG) {
+        console.log(
+          "singleRowLoadHandler after onSuccess time = " + Date.now()
+        );
+      }
+      cldrDashContext.updateRow(json);
+      if (CLDR_TABLE_DEBUG) {
+        console.log(
+          "singleRowLoadHandler after updateRow time = " + Date.now()
+        );
+      }
+      cldrProgress.updateCompletionOneVote(theRow.hasVoted);
+      cldrGui.refreshCounterVetting();
+      if (CLDR_TABLE_DEBUG) {
+        console.log(
+          "singleRowLoadHandler after refreshCounterVetting time = " +
+            Date.now()
+        );
+      }
+    } else {
+      tr.className = "ferrbox";
+      console.log("could not find " + tr.rowHash + " in " + json);
+      onFailure(
+        "refreshSingleRow: Could not refresh this single row: Server failed to return xpath #" +
+          theRow.xpathId +
+          " for locale " +
+          cldrStatus.getCurrentLocale()
+      );
+    }
+    setTimeout(function () {
+      // cldrStatus.getCurrentValueHash would not describe the new item.
+      // theRow.voteVhash does describe the new item.
+      const valueHash = theRow.voteVhash;
+      if (CLDR_TABLE_DEBUG) {
+        console.log(
+          "singleRowLoadHandler timeout: theRow.voteVhash = " + theRow.voteVhash
+        );
+      }
+      if (valueHash) {
+        cldrStatus.setCurrentValueHash(valueHash);
+        const item = findItemByValueHash(theRow, valueHash);
+        if (item?.div) {
+          setLastShown(item.div);
+        } else if (CLDR_TABLE_DEBUG) {
+          console.log("singleRowLoadHandler timeout: item.div not defined");
+        }
+      }
+      cldrInfo.refresh(tr);
+    }, 0);
+  } catch (e) {
+    console.log("Error in ajax post [refreshSingleRow] ", e.message);
+  }
+  if (CLDR_TABLE_DEBUG) {
+    console.log("singleRowLoadHandler end time = " + Date.now());
+  }
+}
+
+function singleRowErrHandler(err, tr, onFailure) {
+  console.log("Error: " + err);
+  tr.className = "ferrbox";
+  tr.innerHTML =
+    "Error while  loading: <div style='border: 1px solid red;'>" +
+    err +
+    "</div>";
+  onFailure("err", err);
+}
+
+function getSingleRowUrl(theRow) {
+  const loc = cldrStatus.getCurrentLocale();
+  const api = "voting/" + loc + "/row/" + theRow.xpstrid;
+  let p = null;
+  if (cldrDashContext.isVisible()) {
+    p = new URLSearchParams();
+    p.append("dashboard", "true");
+  }
+  return cldrAjax.makeApiUrl(api, p);
+}
+
+function getPageUrl(curLocale, curPage, curId) {
+  let p = null;
+  if (curId) {
+    if (!curPage) {
+      curPage = "auto";
+    }
+    // xpstrid is normally only used on the server if page is "auto". However, sometimes a row is bookmarked
+    // and the page name changes, but xpstrid is still valid, and the bookmark can still be used. In that
+    // case the server will treat the obsolete page name the same as "auto", and use xpstrid to determine
+    // the correct current page name.
+    p = new URLSearchParams();
+    p.append("xpstrid", curId);
+  }
+  const api = "voting/" + curLocale + "/page/" + curPage;
+  return cldrAjax.makeApiUrl(api, p);
+}
+
+/**
+ * Update one row using data received from server.
+ *
+ * @param {Node} tr the table row
+ * @param {Object} theRow the data for the row
+ *
+ * Cells (columns) in each row:
+ * Code    English    Abstain    A    Winning    Add    Others
+ */
+function updateRow(tr, theRow) {
+  if (!tr || !theRow) {
+    return;
+  }
+  const rowChecksum = cldrChecksum(JSON.stringify(theRow));
+  if (tr.checksum !== undefined && rowChecksum === tr.checksum) {
+    return; // already up to date
+  }
+  tr.checksum = rowChecksum;
+  tr.theRow = theRow;
+  checkRowConsistency(theRow);
+  reallyUpdateRow(tr, theRow);
+}
+
+/**
+ * Get a checksum for the given string
+ *
+ * @param s the string
+ * @return the checksum
+ */
+function cldrChecksum(s) {
+  let checksum = 0;
+  for (let i = 0; i < s.length; i++) {
+    checksum = (checksum << 5) - checksum + s.charCodeAt(i);
+    checksum |= 0; // convert possible float to integer
+  }
+  return checksum;
+}
+
+/**
+ * Update one row using data received from server.
+ *
+ * @param tr the table row
+ * @param theRow the data for the row
+ */
+function reallyUpdateRow(tr, theRow) {
+  tr.statusAction = cldrSurvey.parseStatusAction(theRow.statusAction);
+  tr.canModify = tr.theTable.json.canModify && tr.statusAction.vote;
+  tr.canChange = tr.canModify && tr.statusAction.change;
+
+  if (!theRow.xpathId) {
+    tr.innerHTML = "<td><i>ERROR: missing row</i></td>";
+    return;
+  }
+  if (!tr.xpstrid) {
+    tr.xpathId = theRow.xpathId;
+    tr.xpstrid = theRow.xpstrid;
+    if (tr.xpstrid) {
+      tr.id = makeRowId(tr.xpstrid);
+      tr.sethash = tr.xpstrid;
+    }
+  }
+
+  let protoButton = null; // no voting at all, unless tr.canModify
+  if (tr.canModify) {
+    protoButton = document.getElementById("proto-button");
+  }
+
+  const statusCell = tr.querySelector(".statuscell");
+  const abstainCell = tr.querySelector(".nocell");
+  const codeCell = tr.querySelector(".codecell");
+  const comparisonCell = tr.querySelector(".comparisoncell");
+  const proposedCell = tr.querySelector(".proposedcell");
+  const otherCell = tr.querySelector(".othercell");
+  const addCell =
+    tr.canChange && !theRow.fixedCandidates
+      ? tr.querySelector(".addcell")
+      : null;
+
+  /*
+   * Update the "status cell", a.k.a. the "A" column.
+   */
+  if (statusCell) {
+    updateRowStatusCell(tr, theRow, statusCell);
+  }
+
+  /*
+   * Update part of the "no cell", cf. updateRowNoAbstainCell; should this code be moved to updateRowNoAbstainCell?
+   */
+  if (abstainCell) {
+    if (theRow.hasVoted) {
+      abstainCell.title = cldrText.get("voTrue");
+      abstainCell.className = "d-no-vo-true nocell";
+    } else {
+      abstainCell.title = cldrText.get("voFalse");
+      abstainCell.className = "d-no-vo-false nocell";
+    }
+  }
+
+  /*
+   * Assemble the "code cell", a.k.a. the "Code" column.
+   */
+  if (codeCell) {
+    updateRowCodeCell(tr, theRow, codeCell);
+  }
+
+  /*
+   * Set up the "comparison cell", a.k.a. the "English" column.
+   */
+  if (comparisonCell) {
+    updateRowEnglishComparisonCell(tr, theRow, comparisonCell);
+  }
+
+  /*
+   * Set up the "proposed cell", a.k.a. the "Winning" column.
+   *
+   * Column headings are: Code    English    Abstain    A    Winning    Add    Others
+   * TODO: are we going out of order here, from English to Winning, skipping Abstain and A?
+   */
+  if (proposedCell) {
+    updateRowProposedWinningCell(tr, theRow, proposedCell, protoButton);
+  }
+
+  /*
+   * Set up the "other cell", a.k.a. the "Others" column.
+   */
+  if (otherCell) {
+    updateRowOthersCell(tr, theRow, otherCell, protoButton);
+  }
+
+  /*
+   * If the user can make changes, add "+" button for adding new candidate item.
+   */
+  if (addCell) {
+    cldrDom.removeAllChildNodes(addCell);
+    cldrAddValue.addValueButton(
+      addCell,
+      theRow.xpstrid,
+      theRow.xpath,
+      theRow.dir
+    );
+  }
+
+  /*
+   * Set up the "no cell", a.k.a. the "Abstain" column.
+   * If the user can make changes, add an "abstain" button;
+   * else, possibly add a ticket link, or else hide the column.
+   */
+  if (abstainCell) {
+    updateRowNoAbstainCell(tr, theRow, abstainCell, proposedCell, protoButton);
+  }
+
+  /*
+   * Set className for this row to "vother" and "cov..." based on the coverage value.
+   * Elsewhere className can get values including "ferrbox", "tr_err", "tr_checking2".
+   */
+  tr.className = "vother cov" + theRow.coverageValue;
+
+  /*
+   * Show the current ID.
+   * TODO: explain.
+   */
+  const curId = cldrStatus.getCurrentId();
+  if (curId !== "" && curId === tr.id) {
+    cldrLoad.showCurrentId(); // refresh again - to get the updated voting status.
+  }
+}
+
+/**
+ * Check whether the data for this row is consistent, and report to console error
+ * if it isn't.
+ *
+ * @param theRow the data from the server for this row
+ *
+ * Called by updateRow.
+ *
+ * Inconsistencies should primarily be detected/reported/fixed on server (DataPage.java)
+ * rather than here on the client, but better late than never, and these checks may be useful
+ * for automated testing with WebDriver.
+ */
+function checkRowConsistency(theRow) {
+  if (!theRow) {
+    console.error("theRow is null or undefined in checkRowConsistency");
+    return;
+  }
+  if (!theRow.winningVhash && theRow.winningVhash !== "") {
+    /*
+     * The server is responsible for ensuring that a winning item is present, or using
+     * the placeholder NO_WINNING_VALUE, which is not null.
+     */
+    console.error("For " + theRow.xpstrid + " - there is no winningVhash");
+  } else if (!theRow.items) {
+    console.error("For " + theRow.xpstrid + " - there are no items");
+  } else if (
+    !theRow.items[theRow.winningVhash] &&
+    !theRow.confirmStatus == "missing"
+  ) {
+    console.error(
+      "For " + theRow.xpstrid + " - there is winningVhash but no item for it"
+    );
+  }
+
+  for (let valueHash in theRow.items) {
+    const item = theRow.items[valueHash];
+    if (item.value === cldrSurvey.INHERITANCE_MARKER) {
+      if (!theRow.inheritedValue) {
+        if (!cldrXPathUtils.extraPathAllowsNullValue(theRow.xpath)) {
+          console.error(
+            "For " +
+              theRow.xpstrid +
+              " - there is INHERITANCE_MARKER without inheritedValue"
+          );
+        }
+      } else if (!theRow.inheritedUrl) {
+        /*
+         * It is probably a bug if item.value === cldrSurvey.INHERITANCE_MARKER but theRow.inheritedUrl is
+         * undefined (null on server).
+         */
+        console.log(
+          "For " +
+            theRow.xpstrid +
+            " - there is INHERITANCE_MARKER without inheritedUrl"
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Update the "status cell", a.k.a. the "A" column.
+ *
+ * @param tr the table row
+ * @param theRow the data from the server for this row
+ * @param cell the table cell
+ */
+function updateRowStatusCell(tr, theRow, cell) {
+  const statusClass = getRowApprovalStatusClass(theRow);
+  cell.className = "d-dr-" + statusClass + " statuscell";
+  cell.innerHTML = getStatusIcon(statusClass);
+  if (!cell.isSetup) {
+    listen(tr, cell, null /* valueHash */);
+    cell.isSetup = true;
+  }
+
+  const statusTitle = cldrText.get(statusClass);
+  cell.title = cldrText.sub("draftStatus", [statusTitle]);
+}
+
+/**
+ * Get the Unicode character corresponding to the given status class
+ *
+ * @param statusClass "approved", "missing", etc.
+ * @return the character such as "✓", "✘", "↑", etc.
+ */
+function getStatusIcon(statusClass) {
+  switch (statusClass) {
+    case "approved":
+    case "contributed":
+    case "missing":
+    case "provisional":
+    case "unconfirmed":
+      return cldrText.get(`status_${statusClass}`);
+    case "inherited-provisional":
+    case "inherited-unconfirmed":
+      return (
+        cldrText.get(`status_inherited`) +
+        "\u200B" +
+        getStatusIcon(statusClass.split("-")[1])
+      );
+    default:
+      return "\ufffd";
+  }
+}
+
+/**
+ * On the client only, make further status distinctions when winning value is cldrSurvey.INHERITANCE_MARKER,
+ * "inherited-unconfirmed" (red up-arrow icon) and "inherited-provisional" (orange up-arrow icon).
+ * Reference: http://unicode.org/cldr/trac/ticket/11103
+ *
+ * @param theRow the data from the server for this row
+ */
+function getRowApprovalStatusClass(theRow) {
+  let statusClass = theRow.confirmStatus;
+
+  if (theRow.winningValue === cldrSurvey.INHERITANCE_MARKER) {
+    if (statusClass === "unconfirmed") {
+      statusClass = "inherited-unconfirmed";
+    } else if (statusClass === "provisional") {
+      statusClass = "inherited-provisional";
+    }
+  }
+  return statusClass;
+}
+
+/*
+ * Update the "Code" cell (column) of this row
+ *
+ * @param tr the table row
+ * @param theRow the data from the server for this row
+ * @param cell the table cell
+ *
+ * Called by updateRow.
+ */
+function updateRowCodeCell(tr, theRow, cell) {
+  cldrDom.removeAllChildNodes(cell);
+  let codeStr = mutateCodeString(theRow.code);
+  if (theRow.coverageValue == 101) {
+    codeStr = codeStr + " (optional)";
+  }
+  cell.appendChild(cldrDom.createChunk(codeStr));
+  cell.className = "d-code codecell";
+
+  // extra attributes
+  if (
+    theRow.extraAttributes &&
+    Object.keys(theRow.extraAttributes).length > 0
+  ) {
+    cldrSurvey.appendExtraAttributes(cell, theRow);
+  }
+  if (!cell.isSetup) {
+    listen(tr, cell, null /* valueHash */);
+    cell.isSetup = true;
+  }
+}
+
+/**
+ * Update the "comparison cell", a.k.a. the "English" column, of this row
+ *
+ * @param tr the table row
+ * @param theRow the data from the server for this row
+ * @param cell the table cell
+ *
+ * Called by updateRow.
+ */
+function updateRowEnglishComparisonCell(tr, theRow, cell) {
+  cldrDom.removeAllChildNodes(cell);
+  let trHint = theRow.translationHint; // sometimes null
+  if (theRow.displayName) {
+    cell.appendChild(
+      cldrDom.createChunk(theRow.displayName, "span", "subSpan")
+    );
+    // add possible <LRM>, etc escaped text to English
+    if (!theRow.noEscaping) {
+      addTags(cell, theRow.displayName);
+    }
+  } else {
+    cell.appendChild(document.createTextNode(""));
+    if (!trHint) {
+      trHint = cldrText.get("empty_comparison_cell_hint");
+    }
+  }
+  cldrSurvey.setLang(cell, TRANS_HINT_ID, TRANS_HINT_DIRECTION);
+  if (theRow.displayExample || trHint || theRow.forumStatus.hasPosts) {
+    const infos = document.createElement("div");
+    infos.className = "infos-code";
+    if (trHint) {
+      appendTranslationHintIcon(infos, trHint, TRANS_HINT_ID);
+    }
+    if (theRow.displayExample) {
+      appendExampleIcon(infos, theRow.displayExample, TRANS_HINT_ID);
+    }
+    if (theRow.forumStatus.hasPosts) {
+      appendForumStatus(infos, theRow.forumStatus, TRANS_HINT_ID);
+    }
+    cell.appendChild(infos);
+  }
+  listen(tr, cell, null /* valueHash */);
+  if (cldrStatus.getPermissions()?.userIsTC) {
+    cldrAddAlt.addAltButton(cell, theRow.xpstrid, theRow.dir);
+  }
+  cell.isSetup = true;
+}
+
+/**
+ * Update the "proposed cell", a.k.a. the "Winning" column, of this row
+ *
+ * @param tr the table row
+ * @param theRow the data from the server for this row
+ * @param cell the table cell
+ * @param protoButton
+ *
+ * Called by updateRow.
+ */
+function updateRowProposedWinningCell(tr, theRow, cell, protoButton) {
+  cldrDom.removeAllChildNodes(cell); // win
+  // reset these classes in case they were set below.
+  cldrDom.removeClass(cell, "d-item-err-noicon");
+  cldrDom.removeClass(cell, "d-item-warn");
+  if (theRow.rowFlagged) {
+    const flagIcon = cldrSurvey.addIcon(cell, "s-flag");
+    flagIcon.title = cldrText.get("flag_desc");
+    cldrSurvey.setLang(flagIcon, TRANS_HINT_ID, TRANS_HINT_DIRECTION);
+  }
+  cldrSurvey.setLang(cell, null, theRow.dir);
+  tr.proposedcell = cell;
+
+  /*
+   * If server doesn't do its job properly, theRow.items[theRow.winningVhash] may be undefined.
+   * Check for that here to prevent crash in addVitem. An error message might be appropriate here
+   * in that case, though the consistency checking really should happen earlier, see checkRowConsistency.
+   */
+  if (getValidWinningValue(theRow) !== null) {
+    addVitem(
+      cell,
+      tr,
+      theRow,
+      theRow.winningVhash,
+      cldrSurvey.cloneAnon(protoButton)
+    );
+  } else if (theRow?.testsForMissingItem?.length) {
+    const errorMajorTypes = new Set(
+      theRow?.testsForMissingItem.map(({ type }) => type)
+    );
+    let worstType = "Unknown";
+    if (errorMajorTypes.has("Error")) {
+      worstType = "Error";
+    } else if (errorMajorTypes.has("Warning")) {
+      worstType = "Warning";
+    }
+    const icon = cldrSurvey.addIcon(
+      cell,
+      worstType === "Error" ? "i-stop" : "i-warn"
+    );
+    icon.setAttribute("dir", "ltr");
+    icon.title = cldrText.get("item_description_missing_tests");
+    cldrDom.addClass(
+      cell,
+      worstType === "Error" ? "d-item-err-noicon" : "d-item-warn"
+    );
+  }
+
+  if (theRow.votingResults.votesForMissing) {
+    if (theRow.confirmStatus == "missing") {
+      cell.appendChild(
+        document.createTextNode(VOTE_FOR_MISSING + " (vote for missing)")
+      );
+    }
+  }
+
+  listen(tr, cell, theRow.winningVhash);
+}
+
+/**
+ * Update the "Others" cell (column) of this row
+ *
+ * @param tr the table row
+ * @param theRow the data from the server for this row
+ * @param cell the table cell
+ * @param protoButton
+ *
+ * Called by updateRow.
+ */
+function updateRowOthersCell(tr, theRow, cell, protoButton) {
+  let hadOtherItems = false;
+  cldrDom.removeAllChildNodes(cell); // other
+  cldrSurvey.setLang(cell, null, theRow.dir);
+
+  /*
+   * Add the other vote info -- that is, vote info for the "Others" column.
+   */
+  for (let valueHash in theRow.items) {
+    if (
+      valueHash === theRow.winningVhash ||
+      theRow.items[valueHash].rawValue == NO_WINNING_VALUE
+    ) {
+      // skip vote for winner
+      continue;
+    }
+    hadOtherItems = true;
+    addVitem(cell, tr, theRow, valueHash, cldrSurvey.cloneAnon(protoButton));
+    cell.appendChild(document.createElement("hr"));
+  }
+
+  if (theRow.votingResults.votesForMissing) {
+    if (theRow.confirmStatus != "missing") {
+      cell.appendChild(
+        document.createTextNode(
+          VOTE_FOR_MISSING + "(a losing vote for missing)"
+        )
+      );
+    }
+  }
+  if (!hadOtherItems) {
+    listen(tr, cell, null /* valueHash */);
+  }
+}
+
+/**
+ * Append a Vetting item ( vote button, etc ) to the row.
+ *
+ * @param {DOM} td cell to append into
+ * @param {DOM} tr which row owns the items
+ * @param {JSON} theRow JSON content of this row's data
+ * @param {String} valueHash the hash of the value for this item
+ * @param {DOM} newButton	 button prototype object
+ */
+function addVitem(td, tr, theRow, valueHash, newButton) {
+  const item = theRow.items[valueHash]; // JSON of the specific item we are adding
+  let displayValue = item.value;
+  if (displayValue === cldrSurvey.INHERITANCE_MARKER) {
+    displayValue = theRow.inheritedDisplayValue;
+  }
+  if (!displayValue && displayValue !== "") {
+    return;
+  }
+  const div = document.createElement("div");
+  div.id = makeCandidateItemId(theRow.xpstrid, valueHash);
+  const isWinner = td == tr.proposedcell;
+  const testKind = cldrVote.getTestKind(item.tests);
+  setDivClass(div, testKind);
+  item.div = div; // back link
+
+  const choiceField = document.createElement("div");
+  choiceField.className = "choice-field";
+  if (newButton) {
+    newButton.value = item.value;
+    cldrVote.wireUpButton(newButton, tr, theRow, valueHash);
+    const wrap = cldrVote.wrapRadio(newButton);
+    choiceField.appendChild(wrap);
+  }
+  const subSpan = document.createElement("span");
+  subSpan.className = "subSpan";
+  cldrVote.appendItem(subSpan, displayValue, item.status);
+  choiceField.appendChild(subSpan);
+  if (item.isBaselineValue == true) {
+    cldrDom.appendIcon(
+      choiceField,
+      "i-star",
+      cldrText.get("voteInfo_baseline_desc")
+    );
+  }
+  if (!theRow.noEscaping) {
+    addTags(choiceField, displayValue);
+  }
+  if (item.votes && !isWinner) {
+    if (
+      valueHash == theRow.voteVhash &&
+      theRow.canFlagOnLosing &&
+      !theRow.rowFlagged
+    ) {
+      const stopIcon = cldrSurvey.addIcon(choiceField, "i-stop");
+      stopIcon.setAttribute("dir", "ltr");
+      stopIcon.title = cldrText.get("mustflag_explain_msg");
+    }
+  }
+
+  /*
+   * Note: history is maybe only defined for debugging; won't normally display it in production.
+   * See DataPage.USE_CANDIDATE_HISTORY which currently should be false for production, so
+   * that item.history will be undefined.
+   */
+  if (item.history) {
+    const historyText = " ☛" + item.history;
+    const historyTag = cldrDom.createChunk(historyText, "span", "");
+    choiceField.appendChild(historyTag);
+    listen(tr, historyTag, valueHash);
+  }
+
+  const surveyUser = cldrStatus.getSurveyUser();
+  if (
+    newButton &&
+    theRow.voteVhash == valueHash &&
+    theRow.items[theRow.voteVhash]?.votes[surveyUser.id]?.voteDetails?.override
+  ) {
+    const overrideTag = cldrDom.createChunk(
+      theRow.items[theRow.voteVhash].votes[surveyUser.id].voteDetails.override,
+      "span",
+      "i-override"
+    );
+    choiceField.appendChild(overrideTag);
+  }
+
+  div.appendChild(choiceField);
+
+  // wire up the onclick function for the Info Panel
+  div.popParent = tr;
+  listen(tr, div, valueHash);
+  td.appendChild(div);
+
+  if (item.example && item.value != item.examples) {
+    appendExample(div, item.example);
+  }
+  return div;
+}
+
+function setDivClassSelected(div, testKind) {
+  setDivClass(div, testKind);
+  setLastShown(div); // add thick border and remove it from previous selected element
+}
+
+function setDivClass(div, testKind) {
+  if (testKind == "Warning") {
+    div.className = "d-item-warn";
+  } else if (testKind == "Error") {
+    div.className = "d-item-err";
+  } else {
+    div.className = "d-item";
+  }
+}
+
+/**
+ * If the value should be displayed with any tags (chits), add the tagged version
+ *
+ * @param {Element} el the DOM element to which the tagged version may be appended
+ * @param {String} value the candidate value
+ */
+function addTags(el, value) {
+  if (value && cldrChar.containsTaggable(value)) {
+    cldrAddValue.addTagsReadyOnly(el, value);
+  }
+}
+
+function appendTranslationHintIcon(parent, text, loc) {
+  const el = document.createElement("span");
+  el.className = "d-trans-hint well well-sm";
+  el.textContent = "Translation hint: " + text;
+  cldrSurvey.setLang(el, loc);
+  parent.appendChild(el);
+  // This is related to "mouseenter" configured in cldrEvent.startup
+  const img = document.createElement("img");
+  img.className = "d-trans-hint-img";
+  img.src = "hint.png";
+  img.alt = "Translation hint";
+  parent.appendChild(img);
+  return el;
+}
+
+function appendForumStatus(parent, forumStatus, loc) {
+  const el = document.createElement("span");
+  el.textContent = forumStatus.hasOpenPosts
+    ? cldrText.get("forum_path_has_open_posts_icon")
+    : cldrText.get("forum_path_has_only_closed_posts_icon");
+  el.title =
+    cldrText.get("forum_path_has_posts") +
+    (forumStatus.hasOpenPosts
+      ? cldrText.get("forum_path_has_open_posts")
+      : cldrText.get("forum_path_has_only_closed_posts"));
+  el.style.backgroundColor = forumStatus.hasOpenPosts ? "orange" : "green";
+  el.style.padding = el.style.margin = ".5ex";
+  cldrSurvey.setLang(el, loc);
+  parent.appendChild(el);
+  return el;
+}
+
+function appendExampleIcon(parent, text, loc) {
+  const el = appendExample(parent, text, loc);
+  const img = document.createElement("img");
+  // This is related to "mouseenter" configured in cldrEvent.startup
+  img.className = "d-example-img";
+  img.src = "example.png";
+  img.alt = "Example";
+  parent.appendChild(img);
+  return el;
+}
+
+function appendExample(parent, text, loc) {
+  const el = document.createElement("div");
+  el.className = "d-example well well-sm";
+  el.innerHTML = text;
+  cldrSurvey.setLang(el, loc);
+  parent.appendChild(el);
+  return el;
+}
+
+/**
+ * Update the "no cell", a.k.a, the "Abstain" column, of this row
+ * Also possibly make changes to the "proposed" (winning) cell
+ *
+ * If the user can make changes, add an "abstain" button;
+ * else, possibly add a ticket link, or else hide the column.
+ *
+ * @param tr the table row
+ * @param theRow the data from the server for this row
+ * @param noCell the table "no" (abstain) cell
+ * @param proposedCell the table "proposed" (winning) cell
+ * @param protoButton
+ *
+ * Called by updateRow.
+ */
+function updateRowNoAbstainCell(tr, theRow, noCell, proposedCell, protoButton) {
+  if (tr.canModify) {
+    cldrDom.removeAllChildNodes(noCell); // no opinion
+    const noOpinion = cldrSurvey.cloneAnon(protoButton);
+    cldrVote.wireUpButton(noOpinion, tr, theRow, null);
+    noOpinion.value = null;
+    const wrap = cldrVote.wrapRadio(noOpinion);
+    noCell.appendChild(wrap);
+    listen(tr, noCell, null /* valueHash */);
+  } else {
+    if (!tr.theTable.json.canModify) {
+      cldrDom.setDisplayed(noCell, false);
+    } else if (tr.statusAction.ticket) {
+      proposedCell.className = "d-change-confirmonly";
+      proposedCell.appendChild(
+        cldrDom.createChunk(cldrText.get("file_ticket_notice"), "i", "fnotebox")
+      );
+      theRow.hasTicketLink = true; // for Info Panel
+    }
+  }
+}
+
+/**
+ * Get the winning value for the given row, if it's a valid value.
+ * Null and NO_WINNING_VALUE ('no-winning-value') are not valid.
+ * See NO_WINNING_VALUE in VoteResolver.java.
+ *
+ * @param theRow
+ * @returns the winning value, or null if there is not a valid winning value
+ */
+function getValidWinningValue(theRow) {
+  if (!theRow) {
+    console.error("theRow is null or undefined in getValidWinningValue");
+    return null;
+  }
+  if (
+    theRow.items &&
+    (theRow.winningVhash || theRow.winningVhash === "") &&
+    theRow.items[theRow.winningVhash]
+  ) {
+    const item = theRow.items[theRow.winningVhash];
+    if (item.value && item.value !== "") {
+      const val = item.value;
+      if (val !== NO_WINNING_VALUE) {
+        return val;
+      }
+    }
+  }
+  return null;
+}
+
+function makeRowId(id) {
+  return ROW_ID_PREFIX + id;
+}
+
+function makeCandidateItemId(xpstrid, valueHash) {
+  return CANDIDATE_ITEM_ID_PREFIX + xpstrid + "_" + valueHash;
+}
+
+function isHeaderId(id) {
+  return id.startsWith(HEADER_ID_PREFIX);
+}
+
+function makeHeaderId(name) {
+  // Replace all sequences of non-alphanumeric characters with underscore, and
+  // start with HEADER_ID_PREFIX to identify this kind of id uniquely
+  return HEADER_ID_PREFIX + name.replaceAll(/[^a-zA-Z0-9]+/g, "_");
+}
+
+/**
+ * Make the object "theObj" respond to being clicked. Clicking a cell in the main
+ * vetting table should make the cell highlighted, update the URL bar to show
+ * the hex id of the path for the row in question, and update the Info Panel if
+ * the Info Panel is open.
+ *
+ * @param {Node} tr the TR element that is clicked
+ * @param {Node} theObj to listen to (typically one of the cells in a row, or one of the candidate items in the Winning or Others cell)
+ * @param {String} valueHash the hash of the value for the candidate item, or null
+ */
+function listen(tr, theObj, valueHash) {
+  cldrDom.listenFor(theObj, "click", function (e) {
+    const theRow = tr?.theRow || null;
+    if (theRow && valueHash) {
+      cldrStatus.setCurrentValueHash(valueHash);
+      const item = findItemByValueHash(theRow, valueHash);
+      if (item?.div) {
+        setLastShown(item.div);
+      }
+    }
+    updateSelectedRowAndCell(tr, theObj);
+    cldrInfo.refresh(tr);
+    cldrEvent.stopPropagation(e);
+    return false;
+  });
+}
+
+function updateSelectedRowAndCell(tr, obj) {
+  if (tr?.sethash) {
+    cldrLoad.updateCurrentId(tr.sethash);
+  }
+  setLastShown(obj);
+}
+
+function handleIdChanged() {
+  const curId = cldrStatus.getCurrentId();
+  if (curId) {
+    if (isHeaderId(curId)) {
+      goToHeaderId(curId);
+    } else {
+      goToRowId(curId);
+    }
+  }
+}
+
+function goToHeaderId(headerId) {
+  const el = document.getElementById(headerId);
+  if (el) {
+    el.scrollIntoView({ block: "start" });
+  }
+}
+
+function goToRowId(curId) {
+  const rowId = makeRowId(curId);
+  const tr = document.getElementById(rowId);
+  if (!tr) {
+    if (CLDR_TABLE_DEBUG) {
+      console.log(
+        "Warning: could not load rowId = " + rowId + "; curId = " + curId
+      );
+    }
+    cldrLoad.updateCurrentId(null);
+  } else {
+    if (CLDR_TABLE_DEBUG && !tr.proposedcell) {
+      // warn, but show it anyway
+      console.log(
+        "Warning: now proposed cell " +
+          curId +
+          " - not setup - " +
+          tr.toString() +
+          " pc=" +
+          tr.proposedcell
+      );
+    }
+    if (CLDR_TABLE_DEBUG) {
+      console.log("Changed to " + cldrStatus.getCurrentId());
+    }
+    go(tr);
+  }
+}
+
+function go(tr) {
+  const theRow = tr.theRow;
+  let valueHash = cldrStatus.getCurrentValueHash();
+  if (!valueHash) {
+    if (theRow.winningVhash) {
+      valueHash = theRow.winningVhash;
+    } else {
+      for (let k in theRow.items) {
+        valueHash = k;
+        break;
+      }
+    }
+  }
+  let el;
+  if (valueHash) {
+    const item = findItemByValueHash(theRow, valueHash);
+    if (item?.div) {
+      el = item.div;
+    }
+  }
+  if (!el) {
+    el = tr.querySelector(".proposedcell");
+  }
+  if (el) {
+    setLastShown(el);
+  }
+  tr.scrollIntoView({ block: "center" });
+  cldrInfo.refresh(tr);
+}
+
+/**
+ * Adjust which cell in the current row has a bold outline (style "pu-select") indicating
+ * that it is selected (most recently clicked on)
+ *
+ * @param {Element} obj
+ */
+function setLastShown(obj) {
+  if (CLDR_TABLE_DEBUG) {
+    console.log(
+      "This is cldrTable.setLastShown; lastShown = " +
+        lastShown +
+        " (" +
+        lastShown?.id +
+        "); obj = " +
+        obj +
+        " (" +
+        obj?.id +
+        ")"
+    );
+  }
+  if (lastShown && obj != lastShown) {
+    if (CLDR_TABLE_DEBUG) {
+      if (obj?.class && obj.class.includes("pu-select")) {
+        console.log(
+          "setLastShown removing pu-select from obj.id = " +
+            obj?.id +
+            "; obj.class = " +
+            obj?.class
+        );
+      } else {
+        console.log(
+          "setLastShown not removing pu-select from obj.id = " +
+            obj?.id +
+            "; obj.class = " +
+            obj?.class
+        );
+      }
+    }
+    const partr = cldrDom.parentOfType("TR", lastShown); // partr = parent table row
+    cldrDom.removeClass(lastShown, "pu-select");
+    if (partr) {
+      // "selectShow" is defined in css and displays a silver/gray background, indicating a row that would
+      // be hidden due to coverage level of its xpath (e.g., xpath is comprehensive but coverage menu is basic),
+      // but the row is shown because it is selected. The user may have selected the row while the menu was
+      // comprehensive, then the user may have changed the menu to basic.
+      if (CLDR_TABLE_DEBUG) {
+        console.log(
+          "setLastShown removing selectShow; partr.id = " + partr?.id
+        );
+      }
+      cldrDom.removeClass(partr, "selectShow");
+    } else if (CLDR_TABLE_DEBUG) {
+      console.log("setLastShown NOT removing selectShow; !partr");
+    }
+  }
+  if (obj) {
+    if (CLDR_TABLE_DEBUG) {
+      console.log("setLastShown adding pu-select to obj.id = " + obj?.id);
+    }
+    if (!obj.nodeName != "TD") {
+      // Don't select a random subelement. We want to select a TD only.
+      const partd = cldrDom.parentOfType("TD", obj);
+      if (partd) obj = partd;
+    }
+    cldrDom.addClass(obj, "pu-select");
+    const partr = cldrDom.parentOfType("TR", obj);
+    if (partr) {
+      if (CLDR_TABLE_DEBUG) {
+        console.log("setLastShown adding selectShow; partr.id = " + partr?.id);
+      }
+      cldrDom.addClass(partr, "selectShow");
+    }
+  }
+  lastShown = obj;
+}
+
+function resetLastShown() {
+  if (CLDR_TABLE_DEBUG) {
+    console.log(
+      "This is cldrTable.resetLastShown; lastShown = " +
+        lastShown +
+        " (" +
+        lastShown?.id +
+        "); lastShown.class = " +
+        lastShown.class
+    );
+  }
+  if (lastShown) {
+    const partr = cldrDom.parentOfType("TR", lastShown); // partr = parent table row
+    cldrDom.removeClass(lastShown, "pu-select");
+    if (partr) {
+      cldrDom.removeClass(partr, "selectShow");
+    }
+  }
+  lastShown = null;
+}
+
+/**
+ * Get the Candidate Item with the given value hash in the given row
+ *
+ * @param {Object} theRow
+ * @param {String} valueHashToFind
+ * @returns {Object} the candidate item, or null if not found
+ */
+function findItemByValueHash(theRow, valueHashToFind) {
+  return theRow?.items[valueHashToFind] || null;
+}
+
+/**
+ * Get the Candidate Item with the given PROCESSED (not raw) value in the given row
+ *
+ * The difference between raw and processed involves the back end: DataPage.DataRow.CandidateItem.getProcessedValue
+ *
+ * @param {Object} theRow
+ * @param {String} valueToFind
+ * @returns {Object} the candidate item, or null if not found
+ */
+function findItemByProcessedValue(theRow, valueToFind) {
+  if (!theRow.items) {
+    return null;
+  }
+  for (let valueHash in theRow.items) {
+    if (valueToFind == theRow.items[valueHash].value) {
+      return theRow.items[valueHash];
+    }
+  }
+  return null;
+}
+
+/**
+ * Get the Candidate Item with the given RAW (not processed) value in the given row
+ *
+ * @param {Object} theRow
+ * @param {String} valueToFind
+ * @returns {Object} the candidate item, or null if not found
+ */
+function findItemByRawValue(theRow, valueToFind) {
+  if (!theRow.items) {
+    return null;
+  }
+  for (let valueHash in theRow.items) {
+    if (valueToFind == theRow.items[valueHash].rawValue) {
+      return theRow.items[valueHash];
+    }
+  }
+  return null;
+}
+
+/**
+ * Update code string, doing post processing
+ * @param {string} code
+ * @returns updated code string
+ */
+function mutateCodeString(code) {
+  // short cut
+  if (!code.endsWith("-dgender")) return code;
+  const parts = code.split("-");
+  const allButLast = parts.slice(0, -1).join("-"); // a-b-c-dgender -> a-b-c
+  const unitGenders = cldrLoad
+    .getTheLocaleMap()
+    ?.getLocaleInfo(cldrStatus.getCurrentLocale())?.unitGenders;
+  if (!unitGenders) return allButLast; // drop gender
+  const genders = unitGenders.split(" ");
+  if (genders.indexOf("neuter") !== -1) {
+    return allButLast + "-neuter";
+  } else if (genders.indexOf("masculine") !== -1) {
+    return allButLast + "-masculine";
+  } else {
+    return allButLast; // didn't find either, so drop them.
+  }
+}
+
+export {
+  NO_WINNING_VALUE,
+  findItemByProcessedValue,
+  findItemByRawValue,
+  findItemByValueHash,
+  getPageUrl,
+  getStatusIcon,
+  getValidWinningValue,
+  handleIdChanged,
+  insertRows,
+  listen,
+  makeRowId,
+  refreshSingleRow,
+  resetLastShown,
+  setDivClassSelected,
+  /*
+   * The following are meant to be accessible for unit testing only:
+   */
+  cldrChecksum,
+  isHeaderId,
+  makeHeaderId,
+};
