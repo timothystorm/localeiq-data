@@ -1,0 +1,55 @@
+# Docs: https://docs.github.com/en/code-security/dependabot
+
+version: 2
+updates:
+
+  # Maintain dependencies for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      include: scope
+      prefix: "CLDR-19861 gh:"
+    assignees:
+      - btangmu
+      - srl295
+    reviewers:
+      - btangmu
+      - srl295
+
+  # Maintain dependencies for npm all together
+  - package-ecosystem: "npm"
+    directories:
+      - "/tools/cldr-apps/js"
+      - "/tools/scripts/jira-updater"
+      - "/tools/scripts/tr-archive"
+      - "/docs/site"
+      - "/tools/st-prom-exporter"
+      - "/tools/scripts/keyboard-abnf-tests"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      include: scope
+      prefix: "CLDR-19861 js:"
+    assignees:
+      - btangmu
+      - srl295
+    reviewers:
+      - btangmu
+      - srl295
+
+  # Maintain dependencies for Maven
+  - package-ecosystem: "maven"
+    directory: "/tools"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      include: scope
+      prefix: "CLDR-19861 j:"
+    assignees:
+      - btangmu
+      - srl295
+    reviewers:
+      - btangmu
+      - srl295

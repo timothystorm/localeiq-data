@@ -1,0 +1,27 @@
+import * as XLSX from "xlsx";
+/**
+ * Add a comment to an XLSX sheet
+ * @param {WorkSheet} ws sheet
+ * @param {String|Object} where reference to comment location, such as C1  or {r:1, c:1}
+ * @param {String} t Text to push
+ */
+function pushComment(ws, where, t) {
+  if (typeof where === "object") {
+    where = XLSX.utils.encode_cell(where);
+  }
+  ws[where].c = ws[where].c || [];
+  ws[where].c.hidden = true;
+  ws[where].c.push({ a: "SurveyTool", t });
+}
+
+/**
+ *
+ * @param {String} locale locale for the links
+ * @param {String} strid xpath hash
+ * @param {String?} page optional page
+ */
+function getSurveyUrl(locale, strid, page) {
+  return `https://st.unicode.org/cldr-apps/v#/${locale}/${page || ""}/${strid}`;
+}
+
+export { getSurveyUrl, pushComment };
